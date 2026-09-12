@@ -54,6 +54,8 @@ def ensure_chrome_running():
 
     print("\n[INFO] Chrome 브라우저를 원격 디버깅 모드로 실행합니다...")
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    si = subprocess.STARTUPINFO()
+    si.lpDesktop = r"WinSta0\Default"
     cmd = [
         str(CHROME_PATH),
         "--remote-debugging-port=9222",
@@ -61,9 +63,9 @@ def ensure_chrome_running():
         "--no-first-run",
         "--no-default-browser-check",
         "--start-maximized",
-        "https://photos.google.com",
+        "https://photos.google.com/quotamanagement?hl=ko&pli=1",
     ]
-    subprocess.Popen(cmd)
+    subprocess.Popen(cmd, startupinfo=si)
     
     # 포트 대기
     for _ in range(15):
@@ -175,7 +177,7 @@ async def download_year_photos(page, year: int, staging_dir: Path) -> Optional[P
 
 
 def extract_and_integrate(zip_path: Path, year: int) -> int:
-    """다운로드된 ZIP 압축 해제 ➡️ 표준 파일명 변환 ➡️ D:\Photos_Merged\{year} 통합"""
+    r"""다운로드된 ZIP 압축 해제 ➡️ 표준 파일명 변환 ➡️ D:\Photos_Merged\{year} 통합"""
     if not zip_path or not zip_path.exists():
         return 0
 
