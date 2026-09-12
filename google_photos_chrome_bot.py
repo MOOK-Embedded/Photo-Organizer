@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import json
+import csv
 import zipfile
 import asyncio
 import subprocess
@@ -229,12 +230,15 @@ def extract_and_integrate(zip_path: Path, year: int) -> int:
                 except Exception:
                     pass
 
-            if not dt_obj:
+            res_str = ""
+            if ext in {".jpg", ".jpeg", ".png", ".heic"}:
                 try:
-                    img = Image.open(src_file)
-                    exif = img._getexif()
-                    if exif and 36867 in exif:
-                        dt_obj = datetime.strptime(exif[36867], "%Y:%m:%d %H:%M:%S")
+                    with Image.open(src_file) as im:
+                        res_str = f"{im.width}x{im.height}"
+                        if not dt_obj:
+                            exif = im._getexif()
+                            if exif and 36867 in exif:
+                                dt_obj = datetime.strptime(exif[36867], "%Y:%m:%d %H:%M:%S")
                 except Exception:
                     pass
 
@@ -243,13 +247,14 @@ def extract_and_integrate(zip_path: Path, year: int) -> int:
 
             date_str = dt_obj.strftime("%Y%m%d%H%M%S")
             device_str = meta.get("cameraModel", "UnknownDevice").replace(" ", "_")
-            new_name = f"{date_str}_[GP_{device_str}]_{f}"
+            tag_str = f"{device_str}_{res_str}".strip("_") if res_str else device_str
+            new_name = f"{date_str}_[GP_{tag_str}]_{f}"
             target_path = dest_dir / new_name
 
             # 중복 회피
             dup_idx = 1
             while target_path.exists():
-                target_path = dest_dir / f"{date_str}_[GP_{device_str}]_{f[:-len(ext)]}_{dup_idx}{ext}"
+                target_path = dest_dir / f"{date_str}_[GP_{tag_str}]_{f[:-len(ext)]}_{dup_idx}{ext}"
                 dup_idx += 1
 
             # 파일 이동
