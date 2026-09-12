@@ -1,0 +1,78 @@
+# ==============================================================================
+# Photo-Organizer .gitignore
+# ==============================================================================
+
+# 1. Critical Credentials (NEVER COMMIT)
+token*.json
+client_secrets*.json
+client_secret_*.json
+*.env
+.credentials/
+*.pem
+*.key
+
+# 2. SQLite Database & Runtime State
+*.db
+*.db-wal
+*.db-shm
+upload_progress.db*
+*.log
+upload.log
+
+# 3. Python Environment & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+venv*/
+.venv*/
+env*/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 4. OS & IDE Metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.idea/
+.vscode/
+*.sublime-*
+
+# 5. Media & Binary Files (Prevent accidental commit of user media)
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.webp
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.3gp
+*.m4v
+*.wmv
+*.zip
+*.7z
+*.tar.*
+
+# 6. Large Historical Archive & Scratch
+_Historical_Pipeline_Archive/
+.tempmediaStorage/
+scratch/
