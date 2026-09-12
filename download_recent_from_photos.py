@@ -29,10 +29,11 @@ from google.auth.transport.requests import Request
 BASE_DIR = Path(r"D:\photos_uploader")
 CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
 TOKEN_FILE = BASE_DIR / "token_readwrite.json"
+SIG_CACHE_FILE = Path(r"D:\_Reports\photos_merged_signatures_cache.json")
 
+# 마스터 전체 스코프 사용 (조회, 다운로드, 업로드 전 권한 일체)
 SCOPES = [
-    "https://www.googleapis.com/auth/photoslibrary.readonly",
-    "https://www.googleapis.com/auth/photoslibrary.appendonly",
+    "https://www.googleapis.com/auth/photoslibrary",
 ]
 
 DEFAULT_TARGET_DIR = Path(r"D:\_GooglePhotos_Recent_Downloads")
@@ -81,7 +82,17 @@ def get_credentials() -> Credentials:
 
 
 def get_existing_signatures() -> set:
-    """D:\Photos_Merged 내 기존 파일들의 (파일명, 파일크기) 시그니처 수집"""
+    """D:\Photos_Merged 내 기존 파일들의 (파일명, 파일크기) 시그니처 수집 (캐시 적용)"""
+    if SIG_CACHE_FILE.exists():
+        try:
+            with open(SIG_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                sigs = {(item[0], item[1]) for item in data}
+                print(f"[1/4] D:\\Photos_Merged 캐시에서 {len(sigs):,}개 파일 시그니처 로드 완료")
+                return sigs
+        except Exception:
+            pass
+
     print("[1/4] D:\\Photos_Merged 기존 파일 목록 인덱싱 중...")
     signatures = set()
     if MERGED_DIR.exists():
@@ -93,8 +104,17 @@ def get_existing_signatures() -> set:
                     signatures.add((f.lower(), sz))
                 except OSError:
                     pass
+
+    try:
+        SIG_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(SIG_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(signatures), f)
+    except Exception:
+        pass
+
     print(f"  총 {len(signatures):,}개 기존 파일 인덱싱 완료")
     return signatures
+
 
 
 def search_recent_photos(creds: Credentials, start_date: datetime) -> list:
