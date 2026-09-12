@@ -42,41 +42,23 @@ CDP_URL = "http://localhost:9222"
 
 
 def ensure_chrome_running():
-    """Chrome이 9222 포트로 실행 중인지 확인하고, 없으면 자동 실행"""
+    """Chrome이 9222 포트로 실행될 때까지 대기 (사용자가 바탕화면 바로가기 실행 시 자동 감지)"""
     import urllib.request
-    try:
-        with urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=2) as resp:
-            data = json.loads(resp.read().decode())
-            print(f"[OK] Chrome CDP 연결 확인: {data.get('Browser')}")
-            return
-    except Exception:
-        pass
-
-    print("\n[INFO] Chrome 브라우저를 원격 디버깅 모드로 실행합니다...")
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    si = subprocess.STARTUPINFO()
-    si.lpDesktop = r"WinSta0\Default"
-    cmd = [
-        str(CHROME_PATH),
-        "--remote-debugging-port=9222",
-        f"--user-data-dir={PROFILE_DIR}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--start-maximized",
-        "https://photos.google.com/quotamanagement?hl=ko&pli=1",
-    ]
-    subprocess.Popen(cmd, startupinfo=si)
-    
-    # 포트 대기
-    for _ in range(15):
-        time.sleep(1)
+    print("\n[Chrome CDP 연결 확인 중 (http://localhost:9222)]...")
+    for i in range(300): # 최대 10분 대기
         try:
             with urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=1) as resp:
-                print("[OK] Chrome 브라우저 실행 및 CDP 연결 성공!")
+                data = json.loads(resp.read().decode())
+                print(f"[OK] Chrome CDP 연결 성공! ({data.get('Browser')})")
                 return
         except Exception:
             pass
-    raise RuntimeError("Chrome CDP 포트(9222) 연결 실패")
+        if i == 0:
+            print(">> 바탕화면에 생성된 [Google Photos 제어용 크롬] 바로가기(또는 .bat)를 더블클릭해 실행해 주세요.")
+        elif i % 10 == 0:
+            print(f">> Chrome 실행 대기 중... ({i*2}초 경과)")
+        time.sleep(2)
+    raise RuntimeError("Chrome CDP 포트(9222) 연결 대기 시간 초과")
 
 
 async def wait_for_login(page):
