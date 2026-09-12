@@ -92,57 +92,53 @@ async def download_year_photos(page, year: int, staging_dir: Path) -> Optional[P
     """구글 포토 검색에서 특정 연도 사진을 검색하고 전체 선택 후 다운로드"""
     search_url = f"https://photos.google.com/search/{year}"
     print(f"\n[{year}년] 사진 검색 페이지 이동: {search_url}")
-    await page.goto(search_url, wait_until="networkidle")
-    await asyncio.sleep(3)
-
-    # 검색 결과 없음 확인
-    content = await page.content()
-    if "검색결과가 없습니다" in content or "No results found" in content or "일치하는 항목 없음" in content:
-        print(f"  [{year}년] 구글 포토에 검색된 사진이 없습니다.")
-        return None
+    try:
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
+    except Exception as e:
+        print(f"  페이지 로드 대기: {e}")
+    await asyncio.sleep(4)
 
     # 사진 요소 탐색
     print(f"  [{year}년] 사진 로딩 및 선택 요소 탐색 중...")
-    
-    # 1. 체크박스 또는 첫 번째 사진 찾기
     checkboxes = await page.query_selector_all('[role="checkbox"]')
-    if not checkboxes:
-        # 썸네일 탐색
-        items = await page.query_selector_all('[data-latest-bg], [role="img"]')
-        if not items:
-            print(f"  [{year}년] 다운로드할 사진 항목을 찾을 수 없습니다.")
-            return None
-        print(f"  [{year}년] {len(items)}개 썸네일 발견. 첫 번째 항목 선택 시도...")
-        await items[0].hover()
-        await asyncio.sleep(1)
-        # hover 후 나타나는 체크박스 재탐색
+    items = await page.query_selector_all('[data-latest-bg], [role="img"]')
+    
+    if not checkboxes and not items:
+        await asyncio.sleep(3)
         checkboxes = await page.query_selector_all('[role="checkbox"]')
+        items = await page.query_selector_all('[data-latest-bg], [role="img"]')
 
-    if not checkboxes:
-        print(f"  [{year}년] 체크박스 활성화 실패. 단축키 방식으로 전환...")
-        # 첫 번째 항목 클릭 후 x 키
-        await page.keyboard.press("ArrowRight")
-        await page.keyboard.press("x")
-    else:
+    if not checkboxes and not items:
+        print(f"  [{year}년] 구글 포토에 검색된 사진이 없습니다.")
+        return None
+
+    print(f"  [{year}년] 발견된 체크박스: {len(checkboxes)}개, 썸네일: {len(items)}개")
+
+    # 1. 첫 번째 사진/그룹 선택
+    if checkboxes:
         print(f"  [{year}년] 첫 번째 체크박스 클릭...")
         await checkboxes[0].click()
+    else:
+        print(f"  [{year}년] 첫 번째 항목 단축키(x) 선택...")
+        await page.keyboard.press("ArrowRight")
+        await page.keyboard.press("x")
 
     await asyncio.sleep(1)
 
-    # 2. 맨 아래로 스크롤하여 마지막 체크박스 Shift+클릭 (전체 선택)
-    print(f"  [{year}년] 전체 선택을 위해 피드 스크롤 중...")
-    for _ in range(5):
+    # 2. 맨 아래로 스크롤하여 전체 선택 (Shift+클릭)
+    print(f"  [{year}년] 전체 사진 로딩을 위해 피드 스크롤 중...")
+    for _ in range(8):
         await page.keyboard.press("PageDown")
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.4)
 
     all_checkboxes = await page.query_selector_all('[role="checkbox"]')
     if len(all_checkboxes) > 1:
-        print(f"  [{year}년] 마지막 체크박스({len(all_checkboxes)}번째) Shift+클릭...")
+        print(f"  [{year}년] 마지막 체크박스({len(all_checkboxes)}번째) Shift+클릭으로 전체 선택...")
         await page.keyboard.down("Shift")
         await all_checkboxes[-1].click()
         await page.keyboard.up("Shift")
     else:
-        print(f"  [{year}년] 단일 그룹 선택됨.")
+        print(f"  [{year}년] 항목 선택 완료.")
 
     await asyncio.sleep(2)
 
@@ -163,8 +159,21 @@ async def download_year_photos(page, year: int, staging_dir: Path) -> Optional[P
         print(f"  [{year}년] 다운로드 완료! ({target_zip.stat().st_size / (1024*1024):.2f} MB)")
         return target_zip
     except Exception as e:
-        print(f"  [{year}년] 다운로드 감지 타임아웃 또는 실패: {e}")
-        # 혹시 일반 다운로드 경로로 들어갔는지 확인
+        print(f"  [{year}년] expect_download 대기 결과: {e}")
+        # 다운로드 폴더 폴링 폴백
+        time.sleep(5)
+        import shutil
+        dl_dirs = [
+            Path(os.environ.get("USERPROFILE", "")) / "Downloads",
+            PROFILE_DIR / "Downloads"
+        ]
+        for d in dl_dirs:
+            if d.exists():
+                zips = sorted(d.glob("*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)
+                if zips and (time.time() - zips[0].stat().st_mtime < 120):
+                    print(f"  [{year}년] 로컬 다운로드 폴더에서 ZIP 발견: {zips[0]}")
+                    shutil.move(str(zips[0]), str(target_zip))
+                    return target_zip
         return None
 
 
