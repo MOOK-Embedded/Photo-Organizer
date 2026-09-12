@@ -68,6 +68,16 @@ async def wait_for_login(page):
         url = page.url
         title = await page.title()
         
+        # intro나 빈 페이지인 경우 즉시 구글 포토로 이동 유도
+        if "intro" in url or "about:blank" in url or url == "" or "chrome://" in url:
+            print("  >> Google Photos 페이지로 자동 이동 중...")
+            try:
+                await page.goto("https://photos.google.com/quotamanagement?hl=ko&pli=1")
+                await asyncio.sleep(2)
+                continue
+            except Exception as e:
+                print(f"  이동 대기 중: {e}")
+
         # 정상 로그인 상태: photos.google.com 도메인이면서 about이나 signin이 아님
         if "photos.google.com" in url and "about" not in url and "signin" not in url and "accounts.google" not in url:
             print(f"[OK] Google Photos 로그인 확인됨! (URL: {url})")
