@@ -53,30 +53,46 @@ def print_stats():
 
 async def upload_batch(page, batch_files):
     # 1. Ensure clean Google Photos page
-    await page.goto("https://photos.google.com", wait_until="domcontentloaded")
-    await asyncio.sleep(1.5)
+    if "photos.google.com" not in page.url or "/search/" in page.url:
+        await page.goto("https://photos.google.com", wait_until="domcontentloaded")
+        await asyncio.sleep(2.0)
 
-    # 2. Click + button (만들기 및 추가)
-    clicked_plus = await page.evaluate("""() => {
-        const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-        const b = btns.find(el => (el.getAttribute('aria-label') || '').includes('만들기 및 추가') && el.offsetParent !== null);
-        if (b) { b.click(); return true; }
-        return false;
+    # Check if menu already open
+    is_open = await page.evaluate("""() => {
+        const menu = document.querySelector('ul[role="menu"]');
+        return menu !== null && menu.offsetParent !== null;
     }""")
-    if not clicked_plus:
-        raise Exception("button 클릭 실패")
-    await asyncio.sleep(1.0)
 
-    # 3. Intercept file chooser
-    async with page.expect_file_chooser(timeout=15000) as fc_info:
-        clicked_import = await page.evaluate("""() => {
-            const items = Array.from(document.querySelectorAll('div, span, button, a'));
-            const target = items.find(el => (el.innerText || '').trim() === '사진 가져오기' && el.offsetParent !== null);
-            if (target) { target.click(); return true; }
-            return false;
+    if not is_open:
+        btn_center = await page.evaluate("""() => {
+            const b = document.querySelector('button[aria-label*="만들기 및 추가"]');
+            if (b) {
+                const r = b.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            }
+            return null;
         }""")
-        if not clicked_import:
-            raise Exception("사진 가져오기 클릭 실패")
+        if not btn_center:
+            raise Exception("'+' 버튼 찾기 실패")
+        await page.mouse.click(btn_center['x'], btn_center['y'])
+        await asyncio.sleep(1.0)
+
+    # 2. Get '사진 가져오기' center
+    import_center = await page.evaluate("""() => {
+        const items = Array.from(document.querySelectorAll('li[role="menuitem"], [role="menuitem"], li, div'));
+        const target = items.find(el => (el.innerText || '').trim() === '사진 가져오기' && el.offsetParent !== null);
+        if (target) {
+            const r = target.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        }
+        return null;
+    }""")
+    if not import_center:
+        raise Exception("'사진 가져오기' 메뉴 찾기 실패")
+
+    # 3. Intercept file chooser and click
+    async with page.expect_file_chooser(timeout=15000) as fc_info:
+        await page.mouse.click(import_center['x'], import_center['y'])
 
     fc = await fc_info.value
     await fc.set_files(batch_files, timeout=120000)
