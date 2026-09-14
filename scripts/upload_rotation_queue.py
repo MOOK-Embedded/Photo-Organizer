@@ -53,7 +53,7 @@ def print_stats():
 
 async def upload_batch(page, batch_files):
     # 1. Ensure clean Google Photos page
-    if "photos.google.com" not in page.url or "/search/" in page.url:
+    if page.url.rstrip("/") != "https://photos.google.com":
         await page.goto("https://photos.google.com", wait_until="domcontentloaded")
         await asyncio.sleep(2.0)
 
