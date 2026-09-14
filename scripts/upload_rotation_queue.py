@@ -182,6 +182,10 @@ async def process_queue(year=None, batch_size=DEFAULT_BATCH_SIZE, limit=None):
                         break
                 except Exception as e:
                     last_err = str(e)
+                    try:
+                        await page.keyboard.press("Escape")
+                    except Exception:
+                        pass
                     if attempt < 3:
                         await asyncio.sleep(2)
 
