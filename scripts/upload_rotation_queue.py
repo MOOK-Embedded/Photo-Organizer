@@ -134,9 +134,36 @@ async def upload_batch(page, batch_files):
 
     return success
 
-async def process_queue(year=None, batch_size=DEFAULT_BATCH_SIZE, limit=None):
+async def get_or_reconnect_page(p, browser=None):
+    for retry in range(10):
+        try:
+            if browser is None or not browser.is_connected():
+                browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            ctx = browser.contexts[0]
+            for pg in ctx.pages:
+                if not pg.is_closed():
+                    return browser, pg
+            pg = await ctx.new_page()
+            await pg.goto("https://photos.google.com", wait_until="domcontentloaded")
+            return browser, pg
+        except Exception as e:
+            print(f"\n[연결 대기] Chrome 연결 재시도 중 ({retry+1}/10): {e}", flush=True)
+            await asyncio.sleep(5)
+    raise Exception("Chrome CDP 연결 실패 (localhost:9222 확인 필요)")
+
+async def process_queue(year=None, batch_size=DEFAULT_BATCH_SIZE, limit=None, retry_failed=False):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
+    if retry_failed:
+        where_clause = "WHERE status = 'failed'"
+        params = []
+        if year:
+            where_clause += " AND year = ?"
+            params.append(year)
+        cur.execute(f"UPDATE upload_queue SET status = 'pending', error_msg = NULL {where_clause}", params)
+        conn.commit()
+        print(f"[재설정] 실패했던 사진들을 대기(pending) 상태로 복원했습니다. (영향받은 건수: {cur.rowcount:,}건)")
 
     query = "SELECT filepath FROM upload_queue WHERE status = 'pending'"
     params = []
@@ -162,26 +189,30 @@ async def process_queue(year=None, batch_size=DEFAULT_BATCH_SIZE, limit=None):
     print(f"\n[업로드 시작] 연도: {yr_label} | 대상: {total_files:,}장 | 총 {len(batches):,}개 배치 (배치당 {batch_size}장)")
 
     async with async_playwright() as p:
-        browser = await p.chromium.connect_over_cdp("http://localhost:9222")
-        ctx = browser.contexts[0]
-        for pg in ctx.pages[1:]:
-            await pg.close()
-        page = ctx.pages[0]
+        browser, page = await get_or_reconnect_page(p)
 
         start_time = time.time()
         success_count = 0
         fail_count = 0
+        consecutive_fails = 0
 
         for b_idx, b_files in enumerate(batches, 1):
             batch_success = False
             last_err = ""
             for attempt in range(1, 4):
                 try:
+                    if page.is_closed():
+                        browser, page = await get_or_reconnect_page(p, browser)
                     batch_success = await upload_batch(page, b_files)
                     if batch_success:
                         break
                 except Exception as e:
                     last_err = str(e)
+                    if any(k in str(e).lower() for k in ["closed", "disconnected", "target", "destroyed"]):
+                        try:
+                            browser, page = await get_or_reconnect_page(p, None)
+                        except Exception:
+                            pass
                     try:
                         await page.keyboard.press("Escape")
                     except Exception:
@@ -194,17 +225,26 @@ async def process_queue(year=None, batch_size=DEFAULT_BATCH_SIZE, limit=None):
             cur = conn.cursor()
 
             if batch_success:
+                consecutive_fails = 0
                 success_count += len(b_files)
                 cur.executemany(
                     "UPDATE upload_queue SET status='success', uploaded_at=?, batch_idx=?, error_msg=NULL WHERE filepath=?",
                     [(now_str, b_idx, f) for f in b_files]
                 )
             else:
+                consecutive_fails += 1
                 fail_count += len(b_files)
                 cur.executemany(
                     "UPDATE upload_queue SET status='failed', uploaded_at=?, batch_idx=?, error_msg=? WHERE filepath=?",
                     [(now_str, b_idx, last_err, f) for f in b_files]
                 )
+                if consecutive_fails >= 5:
+                    print(f"\n[경고] 연속 {consecutive_fails}개 배치 실패 감지. 연결 재수립 시도...", flush=True)
+                    try:
+                        browser, page = await get_or_reconnect_page(p, None)
+                        await asyncio.sleep(10)
+                    except Exception:
+                        pass
 
             conn.commit()
             conn.close()
@@ -228,6 +268,7 @@ def main():
     parser.add_argument("--year", type=int, help="특정 연도만 처리 (예: 2014)")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="배치당 파일 수 (기본: 3)")
     parser.add_argument("--limit", type=int, help="최대 처리 파일 수 제한 (테스트용)")
+    parser.add_argument("--retry-failed", action="store_true", help="기존 실패 건들을 대기(pending) 상태로 복원 후 재시도")
     parser.add_argument("--stats", action="store_true", help="현재 진행 통계 출력")
     args = parser.parse_args()
 
@@ -235,7 +276,7 @@ def main():
         print_stats()
         return
 
-    asyncio.run(process_queue(year=args.year, batch_size=args.batch_size, limit=args.limit))
+    asyncio.run(process_queue(year=args.year, batch_size=args.batch_size, limit=args.limit, retry_failed=args.retry_failed))
 
 if __name__ == "__main__":
     main()
